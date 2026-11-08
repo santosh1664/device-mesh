@@ -36,6 +36,21 @@ jobs:
           flutter doctor -v
       - name: Apply Device Mesh branding
         run: python3 tools/brand_phone_app.py private-lm
+      - name: Pin iOS plugin to Xcode 16-compatible release
+        # device_info_plus 12.4+ uses an iOS API missing from Xcode 16.4 headers.
+        # Keep this pin until the runner uses Xcode 26.1.1+ or the upstream bug is resolved.
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("private-lm/pubspec.yaml")
+          data = p.read_text()
+          marker = "dependency_overrides:\n"
+          if marker not in data:
+              raise SystemExit("Upstream pubspec lacks dependency_overrides")
+          if "  device_info_plus: 12.3.0\n" not in data:
+              data = data.replace(marker, marker + "  device_info_plus: 12.3.0\n", 1)
+          p.write_text(data)
+          PY
       - name: Resolve dependencies
         working-directory: private-lm
         run: flutter pub get

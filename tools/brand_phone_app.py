@@ -23,7 +23,7 @@ replacements = {
     "local_plugins/llama_flutter_android/android/CMakeLists.txt": [
         (
             'option(LLAMA_ANDROID_VULKAN "Build the Vulkan GPU backend" ON)',
-            'option(LLAMA_ANDROID_VULKAN "Build the Vulkan GPU backend" OFF)',
+            'set(LLAMA_ANDROID_VULKAN OFF CACHE BOOL "CI CPU fallback; unsupported Vulkan shader compiler" FORCE)',
         ),
     ],
 }

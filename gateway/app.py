@@ -127,5 +127,5 @@ async def run_task(payload: TaskRequest):
                 }
             except (httpx.HTTPError, KeyError, IndexError, ValueError):
                 node.failures += 1
-                phone.cooldown_until = time.monotonic() + 10
+                node.cooldown_until = time.monotonic() + 10
     raise HTTPException(503, "No node completed the inference request")

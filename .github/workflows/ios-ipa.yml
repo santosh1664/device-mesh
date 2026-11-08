@@ -1,0 +1,66 @@
+name: Build Device Mesh iPhone IPA (unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ios-ipa.yml'
+      - 'tools/brand_phone_app.py'
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout Device Mesh repository
+        uses: actions/checkout@v4
+      - name: Checkout pinned upstream PrivateLM
+        uses: actions/checkout@v4
+        with:
+          repository: orailnoor/cross-platform-llm-client
+          ref: 8a5f3b0c0ca8c2108b76ac9619fe5faf6a6a098e
+          path: private-lm
+          submodules: recursive
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Show Xcode environment
+        run: |
+          xcodebuild -version
+          flutter doctor -v
+      - name: Apply Device Mesh branding
+        run: python3 tools/brand_phone_app.py private-lm
+      - name: Resolve dependencies
+        working-directory: private-lm
+        run: flutter pub get
+      - name: Install CocoaPods dependencies
+        working-directory: private-lm/ios
+        run: pod install
+      - name: Compile iOS application without signing
+        working-directory: private-lm
+        run: flutter build ios --release --no-codesign
+      - name: Package unsigned IPA for sideload signing
+        run: |
+          set -euo pipefail
+          app="private-lm/build/ios/iphoneos/Runner.app"
+          test -d "$app"
+          mkdir -p output/staging/Payload
+          cp -R "$app" output/staging/Payload/Runner.app
+          (cd output/staging && /usr/bin/zip -qr ../device-mesh-ios-unsigned.ipa Payload)
+          rm -rf output/staging
+          (cd output && shasum -a 256 device-mesh-ios-unsigned.ipa > SHA256SUMS)
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-mesh-ios-unsigned-ipa
+          path: |
+            output/device-mesh-ios-unsigned.ipa
+            output/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14

@@ -10,29 +10,42 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="Device Mesh AI Gateway", version="0.1.0", docs_url=None, redoc_url=None)
 
-class Phone:
-    def __init__(self, name, url, token):
+class Node:
+    def __init__(self, name, url, token, platform="android"):
         self.name = name
         self.url = url.rstrip("/")
         self.token = token
+        self.platform = platform
         self.lock = asyncio.Lock()
         self.failures = 0
         self.cooldown_until = 0.0
 
-def load_phones():
+def load_nodes():
+    """Load independent authenticated inference endpoints on Android, iOS, Windows or macOS.
+
+    NODE_* variables take priority; old PHONE_* configuration is kept for compatibility.
+    Nodes can run PrivateLM, llama.cpp server, or another OpenAI-compatible service.
+    """
     result = []
-    for number in (1, 2):
-        url = os.getenv(f"PHONE_{number}_URL", "").strip()
-        key = os.getenv(f"PHONE_{number}_KEY", "").strip()
+    for number in range(1, 9):
+        url = (os.getenv(f"NODE_{number}_URL")
+               or (os.getenv(f"PHONE_{number}_URL") if number <= 2 else "")
+               or "").strip()
+        key = (os.getenv(f"NODE_{number}_KEY")
+               or (os.getenv(f"PHONE_{number}_KEY") if number <= 2 else "")
+               or "").strip()
+        platform = os.getenv(f"NODE_{number}_PLATFORM", "android" if number <= 2 else "windows").lower()
         if url:
             if not url.startswith(("http://", "https://")):
-                raise RuntimeError(f"PHONE_{number}_URL must start with http(s)://")
+                raise RuntimeError(f"NODE_{number}_URL must start with http(s)://")
             if not key:
-                raise RuntimeError(f"PHONE_{number}_KEY is required")
-            result.append(Phone(f"phone-{number}", url, key))
+                raise RuntimeError(f"NODE_{number}_KEY is required")
+            if platform not in ("android", "ios", "windows", "macos", "linux"):
+                raise RuntimeError(f"NODE_{number}_PLATFORM is invalid")
+            result.append(Node(f"node-{number}", url, key, platform))
     return result
 
-phones = load_phones()
+nodes = load_nodes()
 
 async def authorized(authorization: str | None = Header(default=None)):
     expected = os.getenv("EDGE_API_KEY", "")
@@ -55,34 +68,34 @@ PROMPTS = {
 
 @app.get("/health")
 async def health():
-    return {"status": "running", "configured_phones": len(phones)}
+    return {"status": "running", "configured_nodes": len(nodes)}
 
 @app.get("/v1/nodes", dependencies=[Depends(authorized)])
 async def nodes():
     results = []
     async with httpx.AsyncClient(timeout=3) as client:
-        for phone in phones:
+        for node in nodes:
             try:
-                response = await client.get(phone.url + "/health")
+                response = await client.get(node.url + "/health")
                 online = response.status_code == 200
             except httpx.HTTPError:
                 online = False
             results.append({
-                "name": phone.name, "online": online,
-                "busy": phone.lock.locked(),
-                "cooldown": max(0, round(phone.cooldown_until - time.monotonic()))
+                "name": node.name, "online": online,
+                "busy": node.lock.locked(), "platform": node.platform,
+                "cooldown": max(0, round(node.cooldown_until - time.monotonic()))
             })
     return {"nodes": results}
 
 @app.post("/v1/tasks", dependencies=[Depends(authorized)])
 async def run_task(payload: TaskRequest):
-    if not phones:
-        raise HTTPException(503, "No phone nodes configured")
-    candidates = [p for p in phones if not p.lock.locked() and p.cooldown_until <= time.monotonic()]
+    if not nodes:
+        raise HTTPException(503, "No inference nodes configured")
+    candidates = [p for p in nodes if not p.lock.locked() and p.cooldown_until <= time.monotonic()]
     if not candidates:
         raise HTTPException(503, "All AI nodes busy or unavailable")
     timeout = float(os.getenv("PHONE_TIMEOUT_SEC", "120"))
-    for phone in sorted(candidates, key=lambda p: (p.failures, p.name)):
+    for node in sorted(candidates, key=lambda p: (p.failures, p.name)):
         async with phone.lock:
             request = {
                 "model": "loaded-model", "stream": False,
@@ -97,14 +110,14 @@ async def run_task(payload: TaskRequest):
                     response = await client.post(
                         phone.url + "/v1/chat/completions",
                         json=request,
-                        headers={"Authorization": f"Bearer {phone.token}"}
+                        headers={"Authorization": f"Bearer {node.token}"}
                     )
                 if response.status_code == 429 or response.status_code >= 500:
-                    phone.failures += 1
+                    node.failures += 1
                     phone.cooldown_until = time.monotonic() + 10
                     continue
                 if response.status_code != 200:
-                    raise HTTPException(502, f"Phone rejected request: HTTP {response.status_code}")
+                    raise HTTPException(502, f"Node rejected request: HTTP {response.status_code}")
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
                 phone.failures = 0
@@ -115,4 +128,4 @@ async def run_task(payload: TaskRequest):
             except (httpx.HTTPError, KeyError, IndexError, ValueError):
                 phone.failures += 1
                 phone.cooldown_until = time.monotonic() + 10
-    raise HTTPException(503, "No phone completed the inference request")
+    raise HTTPException(503, "No node completed the inference request")

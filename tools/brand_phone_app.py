@@ -20,6 +20,12 @@ replacements = {
     "ios/Runner/Info.plist": [
         ("<string>PrivateLM</string>", "<string>Device Mesh AI</string>"),
     ],
+    "local_plugins/llama_flutter_android/android/CMakeLists.txt": [
+        (
+            'option(LLAMA_ANDROID_VULKAN "Build the Vulkan GPU backend" ON)',
+            'option(LLAMA_ANDROID_VULKAN "Build the Vulkan GPU backend" OFF)',
+        ),
+    ],
 }
 
 for filename, changes in replacements.items():

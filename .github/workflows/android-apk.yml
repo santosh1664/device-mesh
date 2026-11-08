@@ -1,0 +1,57 @@
+name: Build Device Mesh Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-apk.yml'
+      - 'tools/brand_phone_app.py'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Device Mesh repository
+        uses: actions/checkout@v4
+      - name: Checkout pinned upstream PrivateLM
+        uses: actions/checkout@v4
+        with:
+          repository: orailnoor/cross-platform-llm-client
+          ref: 8a5f3b0c0ca8c2108b76ac9619fe5faf6a6a098e
+          path: private-lm
+          submodules: recursive
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Apply Device Mesh branding
+        run: python3 tools/brand_phone_app.py private-lm
+      - name: Resolve Flutter dependencies
+        working-directory: private-lm
+        run: flutter pub get
+      - name: Build Android debug APK
+        working-directory: private-lm
+        run: flutter build apk --debug
+      - name: Collect APK and checksum
+        run: |
+          mkdir -p output
+          cp private-lm/build/app/outputs/flutter-apk/app-debug.apk output/device-mesh-debug.apk
+          (cd output && sha256sum device-mesh-debug.apk > SHA256SUMS)
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-mesh-android-debug
+          path: output/*
+          retention-days: 14
+          if-no-files-found: error

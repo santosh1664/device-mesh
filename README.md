@@ -1,31 +1,42 @@
 # Device Mesh AI
 
-Standalone experimental inference cluster connecting a Windows/Linux laptop coordinator to two Android phones. **Not part of the rejekt.ai repository.**
+A standalone **mixed-device local AI network** that connects Android phones, iPhones/iPads, and Windows laptops, with an extensible interface for a future MacBook node. This project is independent of rejekt.ai; the optional client adapter lives in `edge_clients/`.
 
-## Hardware
-- Lenovo IdeaPad (8th-gen Intel Core i5, 12 GB RAM, 256 GB SSD + 1 TB HDD): coordinator and API gateway
-- Android phone 1 and 2 (8 GB RAM, 64 GB storage each): independent inference nodes using PrivateLM
-- All devices communicate on a trusted private network. **RAM is not pooled into one 28 GB machine.**
+## Platform support
 
-## Project layout
-- `gateway/app.py`: authenticated FastAPI router and phone failover
-- `edge_clients/rejekt_ai_client.py`: optional Python backend client
-- `tools/brand_phone_app.py`: label/prompt customization for pinned upstream PrivateLM source
-- `.github/workflows/android-apk.yml`: GitHub Actions Android debug APK builder
-- `Dockerfile`, `compose.yaml`, `requirements.txt`, `.env.example`: laptop deployment
-- `tests/test_gateway.py`: gateway smoke tests
+| Platform | Current integration | Build/distribution |
+|---|---|---|
+| Android | PrivateLM-backed inference node | `device-mesh-android-debug` APK, GitHub Actions |
+| iOS / iPadOS | Experimental PrivateLM-backed inference node | `device-mesh-ios-unsigned-ipa`; **must be signed before installation** |
+| Windows | Docker/Python coordinator; optional OpenAI-compatible model endpoint | Docker Compose; no Windows installer |
+| macOS | Planned node integration (generic OpenAI-compatible endpoint can be configured already) | Native Mac application not yet implemented |
 
-## Android build
-Open **Actions → Build Device Mesh Android APK → Run workflow**. A successful workflow publishes the `device-mesh-android-debug` artifact containing `device-mesh-debug.apk`. The APK is a debug build, not a signed production release. Both phones can install the same APK.
+See [platform installation instructions](docs/platforms.md) and [roadmap](docs/roadmap.md).
 
-The workflow checks out [PrivateLM](https://github.com/orailnoor/cross-platform-llm-client) at a pinned commit and applies limited branding; this repo does **not** contain or replace the upstream full Flutter source. Builds can fail if upstream native dependencies are incompatible. No APK is guaranteed until CI completes.
+## Network layout
 
-## Laptop gateway
-1. Install Docker (Docker Desktop with WSL2 on Windows or Linux Docker).
-2. Copy `.env.example` to `.env`, generate **three different strong secrets**, and set the two phones' LAN IP addresses.
-3. On each phone load a supported small GGUF model, enable its local OpenAI-compatible server, require an API key, and note the URL.
-4. Run `docker compose up -d --build` in this repository.
-5. Smoke-test:
+```
+             Your application (optional rejekt.ai adapter)
+                               |
+                   Windows/Linux coordinator
+                       FastAPI :8787
+                               |
+                Authenticated private LAN/VPN
+                  /       |         \
+             Android    iPhone     PC/Mac model server
+             PrivateLM   PrivateLM  (optional)
+```
+
+This gateway routes **independent inference requests**, not shared RAM or combined GPU memory. Devices retain their own hardware limits. In future, macOS can serve as an additional node through the same protocol.
+
+## Install and configure the coordinator
+
+1. Install Docker Desktop + WSL2 on Windows (or Docker on Linux).
+2. Copy `.env.example` to `.env`.
+3. Generate a long independent API token for the gateway and each device. Enter real device LAN IPs.
+4. Start the coordinator using `docker compose up -d --build`.
+5. On each device open its model server, load a compatible model and enable authenticated network access.
+6. Test:
 
 ```sh
 curl http://127.0.0.1:8787/health
@@ -33,10 +44,18 @@ curl -H 'Authorization: Bearer YOUR_EDGE_API_KEY' http://127.0.0.1:8787/v1/nodes
 curl -X POST http://127.0.0.1:8787/v1/tasks -H 'Content-Type: application/json' -H 'Authorization: Bearer YOUR_EDGE_API_KEY' -d '{"task":"general","input":"Reply with hello"}'
 ```
 
-## Scope & limitations
-- Each phone executes one inference at a time. This gateway routes requests but does not distribute model layers between the laptop and phones.
-- Upstream PrivateLM has experimental multi-phone clustering, which must be tested separately.
-- Actual phone model compatibility, power, Wi-Fi latency, thermal throttling, and background process reliability remain unverified.
-- Keep endpoints private, do not commit `.env`, and use a VPN if remote access is required.
-- rejekt.ai is only an optional downstream client; no changes to its repository are necessary.
-- Open source upstream: PrivateLM (MIT); see upstream license for its code.
+## Build mobile apps
+
+On the repository's **Actions** tab:
+- **Build Device Mesh Android APK** produces a debug APK from pinned PrivateLM source when successful.
+- **Build Device Mesh iPhone IPA (unsigned)** attempts to build an iOS app on macOS and packages an unsigned IPA. You cannot simply install that IPA like an Android APK. Use an Apple-supported signing route or AltStore, and test it on a real iPhone. Requires iOS 16.2 or newer per upstream project.
+
+Both workflows apply small branding changes while retaining PrivateLM's inference engine. APK/IPA builds and mobile compatibility are **not guaranteed until the Actions workflows and device tests succeed**.
+
+## Security and limitations
+
+- Keep `.env` private, never put coordinator credentials in browser code or public GitHub files.
+- Enable unique node tokens; expose servers only to your private network or VPN.
+- Phones may suspend inference in the background or overheat under prolonged load.
+- The gateway is experimental, not a production-grade persistent job queue.
+- Upstream PrivateLM: https://github.com/orailnoor/cross-platform-llm-client (MIT). Verify license and native dependencies for redistribution.

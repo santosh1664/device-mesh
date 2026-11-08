@@ -1,4 +1,4 @@
-"""Device Mesh AI: authenticated laptop gateway for PrivateLM phone inference."""
+"""Device Mesh AI: authenticated multi-platform local inference gateway."""
 import asyncio
 import hmac
 import os
@@ -71,7 +71,7 @@ async def health():
     return {"status": "running", "configured_nodes": len(nodes)}
 
 @app.get("/v1/nodes", dependencies=[Depends(authorized)])
-async def nodes():
+async def node_status():
     results = []
     async with httpx.AsyncClient(timeout=3) as client:
         for node in nodes:
@@ -94,9 +94,9 @@ async def run_task(payload: TaskRequest):
     candidates = [p for p in nodes if not p.lock.locked() and p.cooldown_until <= time.monotonic()]
     if not candidates:
         raise HTTPException(503, "All AI nodes busy or unavailable")
-    timeout = float(os.getenv("PHONE_TIMEOUT_SEC", "120"))
+    timeout = float(os.getenv("NODE_TIMEOUT_SEC", os.getenv("PHONE_TIMEOUT_SEC", "120")))
     for node in sorted(candidates, key=lambda p: (p.failures, p.name)):
-        async with phone.lock:
+        async with node.lock:
             request = {
                 "model": "loaded-model", "stream": False,
                 "max_tokens": payload.max_tokens,
@@ -108,24 +108,24 @@ async def run_task(payload: TaskRequest):
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     response = await client.post(
-                        phone.url + "/v1/chat/completions",
+                        node.url + "/v1/chat/completions",
                         json=request,
                         headers={"Authorization": f"Bearer {node.token}"}
                     )
                 if response.status_code == 429 or response.status_code >= 500:
                     node.failures += 1
-                    phone.cooldown_until = time.monotonic() + 10
+                    node.cooldown_until = time.monotonic() + 10
                     continue
                 if response.status_code != 200:
                     raise HTTPException(502, f"Node rejected request: HTTP {response.status_code}")
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
-                phone.failures = 0
+                node.failures = 0
                 return {
                     "task": payload.task, "result": content,
-                    "node": phone.name, "model": data.get("model", "unknown")
+                    "node": node.name, "model": data.get("model", "unknown")
                 }
             except (httpx.HTTPError, KeyError, IndexError, ValueError):
-                phone.failures += 1
+                node.failures += 1
                 phone.cooldown_until = time.monotonic() + 10
     raise HTTPException(503, "No node completed the inference request")

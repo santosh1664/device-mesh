@@ -1,4 +1,4 @@
-"""Small, non-destructive label patch for a checkout of upstream PrivateLM."""
+"""Safe, minimal branding patch for pinned PrivateLM Android and iOS builds."""
 from pathlib import Path
 import sys
 
@@ -17,6 +17,9 @@ replacements = {
     "lib/core/constants.dart": [
         ("You are AI Chat, a helpful and friendly assistant.", "You are a helpful assistant for connected applications."),
     ],
+    "ios/Runner/Info.plist": [
+        ("<string>PrivateLM</string>", "<string>Device Mesh AI</string>"),
+    ],
 }
 
 for filename, changes in replacements.items():
@@ -28,7 +31,7 @@ for filename, changes in replacements.items():
     for before, after in changes:
         if before not in updated and after not in updated:
             sys.exit(f"Unexpected upstream structure: {filename}: {before}")
-        updated = updated.replace(before, after, 1)
+        updated = updated.replace(before, after)
     if updated != original:
         backup = path.with_suffix(path.suffix + ".bak")
         if not backup.exists():
@@ -36,4 +39,4 @@ for filename, changes in replacements.items():
         path.write_text(updated)
     print("Ready:", filename)
 
-print("Branding applied. Build and test the application before installing.")
+print("Branding applied; validate build and device-specific inference support.")

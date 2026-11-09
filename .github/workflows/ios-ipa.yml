@@ -54,6 +54,15 @@ jobs:
       - name: Resolve dependencies
         working-directory: private-lm
         run: flutter pub get
+      - name: Build native llama.cpp for iOS (CPU, Metal, RPC)
+        working-directory: private-lm
+        run: |
+          set -euo pipefail
+          brew list ninja >/dev/null 2>&1 || brew install ninja
+          bash local_plugins/llama_flutter_android/scripts/build_llama_ios.sh
+          test -s local_plugins/llama_flutter_android/ios/llama_ios/lib/libllama_ios.a
+          test -s local_plugins/llama_flutter_android/ios/llama_ios/include/llama.h
+          echo "Native llama.cpp archive and headers are ready"
       - name: Install CocoaPods dependencies
         working-directory: private-lm/ios
         run: pod install

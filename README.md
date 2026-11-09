@@ -2,6 +2,19 @@
 
 A standalone **mixed-device local AI network** that connects Android phones, iPhones/iPads, and Windows laptops, with an extensible interface for a future MacBook node. This project is independent of rejekt.ai; the optional client adapter lives in `edge_clients/`.
 
+## Download mobile apps
+
+**Latest published preview:** [Device Mesh AI v0.1.0-preview.1](https://github.com/santosh1664/device-mesh/releases/tag/v0.1.0-preview.1)
+
+| Platform | Direct download | Installation notes |
+|---|---|---|
+| **Android** | [Download Android APK](https://github.com/santosh1664/device-mesh/releases/download/v0.1.0-preview.1/device-mesh-debug.apk) | Debug build; install on a compatible Android device. Vulkan GPU acceleration is disabled in this build. |
+| **iPhone / iPad** | [Download iOS IPA (unsigned)](https://github.com/santosh1664/device-mesh/releases/download/v0.1.0-preview.1/device-mesh-ios-unsigned.ipa) | Requires Apple-compatible signing and provisioning; **cannot be installed directly** like an APK. |
+
+[Browse all releases](https://github.com/santosh1664/device-mesh/releases) · [Android SHA-256 checksum](https://github.com/santosh1664/device-mesh/releases/download/v0.1.0-preview.1/device-mesh-android-SHA256SUMS.txt) · [iOS SHA-256 checksum](https://github.com/santosh1664/device-mesh/releases/download/v0.1.0-preview.1/device-mesh-ios-SHA256SUMS.txt)
+
+These are **developer preview builds**. GitHub Actions compilation succeeded, but installation and local inference on physical devices have not yet been verified.
+
 ## Platform support
 
 | Platform | Current integration | Build/distribution |

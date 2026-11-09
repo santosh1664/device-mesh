@@ -1,22 +1,17 @@
-name: Publish Device Mesh mobile downloads
+name: Publish Device Mesh Android releases
 
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'GitHub release tag, for example v0.1.0-preview.2'
+        description: 'New Android-only release tag (e.g. v0.1.0-preview.2)'
         required: true
-        default: 'v0.1.0-preview.1'
+        default: 'v0.1.0-preview.2'
         type: string
       android_run:
-        description: 'Successful Android build run ID'
+        description: 'Successful Android workflow run ID'
         required: true
         default: '42537070617'
-        type: string
-      ios_run:
-        description: 'Successful iOS build run ID'
-        required: true
-        default: '42537867203'
         type: string
   push:
     branches: [main]
@@ -28,89 +23,89 @@ permissions:
   actions: read
 
 concurrency:
-  group: mobile-release
+  group: android-only-release
   cancel-in-progress: false
 
 jobs:
-  publish:
+  remove-old-ios-assets:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Device Mesh
-        uses: actions/checkout@v4
-
-      - name: Choose release inputs
-        id: release
-        env:
-          REQUEST_TAG: ${{ inputs.release_tag }}
-          REQUEST_ANDROID_RUN: ${{ inputs.android_run }}
-          REQUEST_IOS_RUN: ${{ inputs.ios_run }}
-        run: |
-          set -euo pipefail
-          TAG="${REQUEST_TAG:-v0.1.0-preview.1}"
-          ANDROID_RUN="${REQUEST_ANDROID_RUN:-42537070617}"
-          IOS_RUN="${REQUEST_IOS_RUN:-42537867203}"
-          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]] || { echo "Invalid release tag"; exit 1; }
-          [[ "$ANDROID_RUN" =~ ^[0-9]+$ ]] && [[ "$IOS_RUN" =~ ^[0-9]+$ ]] || { echo "Invalid run ID"; exit 1; }
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "android_run=$ANDROID_RUN" >> "$GITHUB_OUTPUT"
-          echo "ios_run=$IOS_RUN" >> "$GITHUB_OUTPUT"
-
-      - name: Download successful Android and iOS builds
+      - name: Retire iOS assets from the existing preview
         env:
           GH_TOKEN: ${{ github.token }}
-          ANDROID_RUN: ${{ steps.release.outputs.android_run }}
-          IOS_RUN: ${{ steps.release.outputs.ios_run }}
+        run: |
+          set -euo pipefail
+          TAG=v0.1.0-preview.1
+          for asset in device-mesh-ios-unsigned.ipa device-mesh-ios-SHA256SUMS.txt; do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$asset"; then
+              gh release delete-asset "$TAG" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+            fi
+          done
+          cat > release-notes.md <<'EOF'
+          ## Device Mesh AI — Android development preview
+
+          **Android only for now.** iPhone/iPad distribution is postponed.
+
+          - [Download device-mesh-debug.apk](https://github.com/santosh1664/device-mesh/releases/download/v0.1.0-preview.1/device-mesh-debug.apk)
+          - SHA-256 checksum file is attached.
+          - Built by GitHub Actions: https://github.com/santosh1664/device-mesh/actions/runs/42537070617
+          - This is a debug build with Vulkan disabled, not a signed production release.
+          - Android device installation, inference and coordinator connectivity still require physical-device testing.
+          EOF
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file release-notes.md --title "Device Mesh AI $TAG (Android preview)" --prerelease
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets
+
+  publish-android:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate release inputs
+        env:
+          TAG: ${{ inputs.release_tag }}
+          ANDROID_RUN: ${{ inputs.android_run }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]] || exit 1
+          [[ "$ANDROID_RUN" =~ ^[0-9]+$ ]] || exit 1
+      - name: Download successful Android build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANDROID_RUN: ${{ inputs.android_run }}
         run: |
           set -euo pipefail
           gh run download "$ANDROID_RUN" --repo "$GITHUB_REPOSITORY" --name device-mesh-android-debug --dir release/android
-          gh run download "$IOS_RUN" --repo "$GITHUB_REPOSITORY" --name device-mesh-ios-unsigned-ipa --dir release/ios
-
-      - name: Verify checksums and expected binaries
+      - name: Verify Android APK integrity
         run: |
           set -euo pipefail
           test -s release/android/device-mesh-debug.apk
-          test -s release/ios/device-mesh-ios-unsigned.ipa
           (cd release/android && sha256sum -c SHA256SUMS)
-          (cd release/ios && sha256sum -c SHA256SUMS)
-          file release/android/device-mesh-debug.apk release/ios/device-mesh-ios-unsigned.ipa
-          (cd release/android && cp SHA256SUMS ../device-mesh-android-SHA256SUMS.txt)
-          (cd release/ios && cp SHA256SUMS ../device-mesh-ios-SHA256SUMS.txt)
-
-      - name: Publish preview release with direct download assets
+          cp release/android/SHA256SUMS release/android-SHA256SUMS.txt
+      - name: Publish Android-only preview
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          ANDROID_RUN: ${{ steps.release.outputs.android_run }}
-          IOS_RUN: ${{ steps.release.outputs.ios_run }}
+          TAG: ${{ inputs.release_tag }}
+          ANDROID_RUN: ${{ inputs.android_run }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release $TAG already exists. Use a new tag for immutable binary releases."
+            echo "::error::Tag already exists, use a new release tag."
             exit 1
           fi
           cat > release-notes.md <<EOF
-          ## Device Mesh AI — Mobile preview
+          ## Device Mesh AI — Android preview
 
-          | Platform | File | Installation |
-          |---|---|---|
-          | Android | `device-mesh-debug.apk` | Install directly on a compatible Android device. This is a **development/debug APK** with Vulkan acceleration disabled. |
-          | iPhone / iPad | `device-mesh-ios-unsigned.ipa` | **Unsigned**. Cannot install directly. Requires your own signing/provisioning and installation through an appropriate iOS tool. |
-
-          ### Build provenance
-          - Android: https://github.com/$GITHUB_REPOSITORY/actions/runs/$ANDROID_RUN
-          - iOS: https://github.com/$GITHUB_REPOSITORY/actions/runs/$IOS_RUN
-          - SHA256 checksums are attached.
-
-          Both builds passed GitHub Actions compilation and artifact generation. Physical device installation, AI inference, and coordinator connectivity have **not** been verified. These artifacts are a developer preview, **not** production releases.
+          - Android APK: \`device-mesh-debug.apk\`
+          - Debug build; Vulkan acceleration disabled.
+          - Source build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$ANDROID_RUN
+          - iOS and MacBook builds are postponed.
+          - Physical-device installation, local model inference and mesh connectivity remain unverified.
           EOF
           gh release create "$TAG" \
             release/android/device-mesh-debug.apk \
-            release/ios/device-mesh-ios-unsigned.ipa \
-            release/device-mesh-android-SHA256SUMS.txt \
-            release/device-mesh-ios-SHA256SUMS.txt \
+            release/android-SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Device Mesh AI $TAG (mobile preview)" \
+            --title "Device Mesh AI $TAG (Android preview)" \
             --notes-file release-notes.md \
             --target "$GITHUB_SHA" \
             --prerelease
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets
